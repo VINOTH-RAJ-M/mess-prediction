@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Users can read/write only their own profile doc.
+    match /users/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Meal tokens: students can read their own; all writes go through
+    // the backend (Admin SDK bypasses rules), so client writes are blocked.
+    match /mealTokens/{tokenId} {
+      allow read: if isSignedIn() &&
+        (resource.data.studentUid == request.auth.uid || role() in ['staff', 'admin']);
+      allow write: if false;
+    }
+
+    // Transactions and stats: admin-read only, all writes via backend.
+    match /transactions/{txnId} {
+      allow read: if isSignedIn() && role() == 'admin';
+      allow write: if false;
+    }
+
+    match /stats/{doc} {
+      allow read: if isSignedIn() && role() in ['staff', 'admin'];
+      allow write: if false;
+    }
+
+    // Food count is safe for any signed-in student to read (shown in
+    // the app / used for low-stock notifications).
+    match /stats/foodCount {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Historical sessions (crowd prediction) and surplus sale log —
+    // admin only, all writes via backend.
+    match /foodHistory/{doc} {
+      allow read: if isSignedIn() && role() == 'admin';
+      allow write: if false;
+    }
+    match /surplusSales/{doc} {
+      allow read: if isSignedIn() && role() == 'admin';
+      allow write: if false;
+    }
+    match /counters/{doc} {
+      allow read, write: if false; // backend (Admin SDK) only
+    }
+  }
+}
